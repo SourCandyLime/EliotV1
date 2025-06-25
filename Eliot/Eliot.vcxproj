@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|x64">
@@ -51,7 +51,7 @@
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Console</SubSystem>
-      <AdditionalDependencies>cudart_static.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>cudart_static.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;opengl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <CudaCompile>
       <TargetMachinePlatform>64</TargetMachinePlatform>
@@ -77,16 +77,26 @@
     </CudaCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <CudaCompile Include="Visualization.cpp" />
+    <CudaCompile Include="Simulation.cu" />
     <CudaCompile Include="Neuron.cu" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Cortex.h" />
-    <ClInclude Include="Header.cuh" />
+    <ClInclude Include="Cortex.cuh" />
+    <ClInclude Include="Simulation.cuh" />
     <ClInclude Include="Neuron.cuh" />
     <ClInclude Include="Neuron.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Brain.cpp" />
+    <ClCompile Include="Cortex.cpp" />
+    <ClCompile Include="Visualization.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Neuron.frag" />
+    <None Include="Neuron.geom" />
+    <None Include="Neuron.vert" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

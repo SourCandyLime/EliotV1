@@ -1,28 +1,24 @@
-﻿// Kernels.cu
+﻿//./Eliot/Neuron.cu
 #include "Neuron.cuh"
+#include <iostream>
 
-__global__ void scream(Neuron* neurons, float* inputs, int neuron_count, int input_count) {
+__global__ void scream(Neuron* neurons, int neuron_count) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= neuron_count) return;
 
     Neuron& n = neurons[idx];
     float sum = 0.0f;
 
-    // Adjust for Negative Neurons
-    if (n.negative) {
-        for (int i = 0; i < n.num_weights && i < input_count; ++i) {
-            sum -= inputs[i] * n.weights[i]; // Negate the contribution of inputs for negative neurons
-        }
-        n.last_output = (sum <= n.threshold) ? -1.0f : 0.0f; // Fire if sum is less than or equal to threshold
-        
+    for (int i = 0; i < n.num_weights; ++i) {
+        int source_idx = n.linked_indices[i];
+        float input = neurons[source_idx].last_output;
+        sum += (n.is_negative ? -1.0f : 1.0f) * input * n.weights[i];
     }
-    else {
-        for (int i = 0; i < n.num_weights && i < input_count; ++i) {
-            sum += inputs[i] * n.weights[i];
-        }
+
+    if (n.is_negative)
+        n.last_output = (sum <= n.threshold) ? -1.0f : 0.0f;
+    else
         n.last_output = (sum >= n.threshold) ? 1.0f : 0.0f;
-        
-    }
 }
 
 __global__ void adapt(Neuron* neurons, float* inputs, int neuron_count, float learn_rate) {
@@ -35,10 +31,10 @@ __global__ void adapt(Neuron* neurons, float* inputs, int neuron_count, float le
     }
     //adjust threshold based on last output
     if (history != 0.0f) {
-        n.threshold += (n.negative) ? -learn_rate : learn_rate; // Increase threshold if neuron fired to prevent it from firing too easily
+        n.threshold += (n.is_negative) ? -learn_rate : learn_rate; // Increase threshold if neuron fired to prevent it from firing too easily
     }
     else {
-        n.threshold += (n.negative) ? learn_rate : -learn_rate; // Decrease threshold if neuron did not fire to make it more sensitive
+        n.threshold += (n.is_negative) ? learn_rate : -learn_rate; // Decrease threshold if neuron did not fire to make it more sensitive
     }
 
 }

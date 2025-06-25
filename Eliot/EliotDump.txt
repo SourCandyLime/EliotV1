@@ -1,0 +1,270 @@
+
+
+// === .\Brain.cpp ===
+#include <iostream>
+#include <cuda_runtime.h>
+#include "Cortex.h"
+#include "Neuron.cuh"
+#include "Simulation.cuh"
+#include "Visualization.cuh"
+
+static void printNeuronStates(Neuron* neurons, int count) {
+    for (int i = 0; i < count; ++i)
+        std::cout << "[" << i << "] output: " << neurons[i].last_output << "\n";
+}
+
+int main() {
+    std::cout << "Booting up Eliot...\n";
+
+    Cortex audioCortex("Audio", 1024, 128);
+
+    float* inputs;
+    cudaMallocManaged(&inputs, sizeof(float) * audioCortex.input_neurons);
+
+    for (int i = 0; i < audioCortex.input_neurons; ++i)
+        inputs[i] = (float)(rand() % 2);  // random binary input
+
+    int threads = 256;
+    int blocks = (audioCortex.neuron_count + threads - 1) / threads;
+
+    runSimulationStep(audioCortex, inputs);
+	printNeuronStates(audioCortex.neurons, audioCortex.neuron_count);
+
+	window();  // Initialize OpenGL window for visualization
+
+    std::cout << "Simulation step complete.\n";
+    cudaFree(inputs);
+    return 0;
+}
+
+
+// === .\Cortex.cpp ===
+//./Eliot/Cortex.cpp
+#include "Cortex.h"
+#include <cstdio>
+#include <string>
+#include <cuda_runtime.h>
+
+Neuron* allocateNeurons(const char* cortex_name, int neuron_count, int input_neurons) {
+    Neuron* h_neurons = new Neuron[neuron_count];
+
+    for (int i = 0; i < neuron_count; ++i) {
+        float* weights;
+        cudaMallocManaged(&weights, sizeof(float) * input_neurons);  // Unified Memory
+
+        for (int j = 0; j < input_neurons; ++j) {
+            weights[j] = ((float)rand() / RAND_MAX) * 2.0f - 1.0f;  // -1 to 1
+        }
+
+        h_neurons[i].weights = weights;
+        h_neurons[i].num_weights = input_neurons;
+        h_neurons[i].threshold = ((rand() % 100) / 100.0f);
+        h_neurons[i].last_output = 0.0f;
+        h_neurons[i].is_recursive = (rand() / RAND_MAX) < 0.1f;  // Randomly set recursive
+        h_neurons[i].is_input = (i < input_neurons);  // First X are inputs
+        h_neurons[i].is_negative = (rand() / RAND_MAX) < 0.25f; // Randomly set negative
+        snprintf(h_neurons[i].id, sizeof(h_neurons[i].id), "%s.neuron.%d", cortex_name, i);
+    }
+
+    return h_neurons;
+}
+
+// === .\Cortex.cuh ===
+//./Eliot/Cortex.cuh
+#pragma once
+
+#include "Cortex.h"
+#include "Neuron.h"
+
+
+
+// === .\Cortex.h ===
+//./Eliot/Cortex.h
+#pragma once
+
+#include "Neuron.h"
+#include "Neuron.cuh"
+#include <cuda_runtime.h>
+#include <cstdio>
+#include <string>
+
+Neuron* allocateNeurons(const char* cortex_name, int neuron_count, int input_neurons);
+
+struct Cortex {
+	Neuron* neurons;  // Pointer to an array of Neurons
+	int neuron_count; // Total number of neurons in the cortex
+	int input_neurons; // Number of input neurons
+	char name[64]; // Identifier for the cortex
+
+	Cortex(const char* cortex_name, int neuron_count, int input_neurons)
+		: neuron_count(neuron_count), input_neurons(input_neurons) {
+		snprintf(name, sizeof(name), "%s", cortex_name);
+		neurons = allocateNeurons(cortex_name, neuron_count, input_neurons);
+	}
+	~Cortex() {
+		delete[] neurons; // Free allocated memory for neurons
+	}
+};  
+
+// === .\Neuron.cu ===
+﻿//./Eliot/Neuron.cu
+#include "Neuron.cuh"
+
+__global__ void scream(Neuron* neurons, float* inputs, int neuron_count, int input_count) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= neuron_count) return;
+
+    Neuron& n = neurons[idx];
+    float sum = 0.0f;
+
+    // Adjust for Negative Neurons
+    if (n.is_negative) {
+        for (int i = 0; i < n.num_weights && i < input_count; ++i) {
+            sum -= inputs[i] * n.weights[i]; // Negate the contribution of inputs for negative neurons
+        }
+        n.last_output = (sum <= n.threshold) ? -1.0f : 0.0f; // Fire if sum is less than or equal to threshold
+        
+    }
+    else {
+        for (int i = 0; i < n.num_weights && i < input_count; ++i) {
+            sum += inputs[i] * n.weights[i];
+        }
+        n.last_output = (sum >= n.threshold) ? 1.0f : 0.0f;
+        
+    }
+}
+
+__global__ void adapt(Neuron* neurons, float* inputs, int neuron_count, float learn_rate) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= neuron_count) return;
+    Neuron& n = neurons[idx];
+    float history = n.last_output;
+    for (int i = 0; i < n.num_weights; ++i) {
+        n.weights[i] += learn_rate * history * inputs[i]; // Adjust weights based on last output and if input contributed to fire
+    }
+    //adjust threshold based on last output
+    if (history != 0.0f) {
+        n.threshold += (n.is_negative) ? -learn_rate : learn_rate; // Increase threshold if neuron fired to prevent it from firing too easily
+    }
+    else {
+        n.threshold += (n.is_negative) ? learn_rate : -learn_rate; // Decrease threshold if neuron did not fire to make it more sensitive
+    }
+
+}
+
+// === .\Neuron.cuh ===
+//./Eliot/Neuron.cuh
+#pragma once
+#include "Neuron.h"
+
+// Only include CUDA stuff if compiling with nvcc
+#ifdef __CUDACC__
+extern "C" {
+    __global__ void scream(Neuron* neurons, float* inputs, int total_neurons, int input_count);
+    __global__ void adapt(Neuron* neurons, float* inputs, int total_neurons, float learn_rate);
+}
+#endif
+
+// === .\Neuron.h ===
+//./Eliot/Neuron.h
+#pragma once
+
+struct Neuron {
+    float threshold;
+    float last_output;
+    float* weights;
+    bool is_input;
+    bool is_recursive;
+    bool is_negative;
+    int num_weights;
+    char id[64];  // use snprintf to fill this
+#if defined(__CUDACC__)
+    __host__ __device__
+#endif
+        Neuron()
+        : threshold(0.5f), last_output(0.0f), weights(nullptr),
+        is_input(false), is_recursive(false), is_negative(false), num_weights(0) {
+    }
+};
+
+
+// === .\Simulation.cu ===
+//./Eliot/Simulation.cu
+#include "Simulation.cuh"
+
+void runSimulationStep(Cortex& cortex, float* inputs) {
+    int threads = 256;
+    int blocks = (cortex.neuron_count + threads - 1) / threads;
+
+    scream<<<blocks, threads>>>(cortex.neurons, inputs, cortex.neuron_count, cortex.input_neurons);
+    cudaDeviceSynchronize();
+
+    adapt<<<blocks, threads>>>(cortex.neurons, inputs, cortex.neuron_count, 0.001f);
+    cudaDeviceSynchronize();
+}
+
+// === .\Simulation.cuh ===
+//./Eliot/Header.cuh
+#pragma once
+
+#include "Cortex.h"
+#include "Neuron.cuh"
+
+void runSimulationStep(Cortex& cortex, float* inputs);
+
+
+// === .\Visualization.cu ===
+//./Eliot/Visualization.cu
+
+#include "Visualization.cuh"
+
+int window() {
+    if (!glfwInit()) {
+        std::cerr << "GLFW failed to init\n";
+        return -1;
+    }
+
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
+    GLFWwindow* window = glfwCreateWindow(800, 800, "Neuron Visualizer", nullptr, nullptr);
+    if (!window) {
+        std::cerr << "Failed to create window\n";
+        glfwTerminate();
+        return -1;
+    }
+
+    glfwMakeContextCurrent(window);
+
+    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
+        std::cerr << "Failed to initialize GLAD\n";
+        return -1;
+    }
+
+    glViewport(0, 0, 800, 800);
+
+    while (!glfwWindowShouldClose(window)) {
+        glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        // Replace this with your drawNeuronGrid(...) function later
+        // that takes the real cortex data
+
+        glfwSwapBuffers(window);
+        glfwPollEvents();
+    }
+
+    glfwDestroyWindow(window);
+    glfwTerminate();
+    return 0;
+}
+
+
+// === .\Visualization.cuh ===
+//./ Eliot/Visualization.cuh
+#include <glad/glad.h>
+#include <GLFW/glfw3.h>
+#include <iostream>
+
+int window();
