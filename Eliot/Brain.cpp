@@ -13,8 +13,8 @@ static void printNeuronStates(Neuron* neurons, int count) {
 int main() {
     std::cout << "Booting up Eliot...\n";
 
-    Cortex audioCortex("Audio", 4096, 1024);
-    generateLinkMap(audioCortex);
+	// Cortex 1 = Audio Cortex
+    Cortex audioCortex(1, 4096, 1024);
 
     float* inputs = nullptr;
     cudaHostAlloc((void**)&inputs, sizeof(float) * audioCortex.input_neurons, cudaHostAllocMapped);

@@ -1,7 +1,7 @@
 import os
 
 # Extensions to include
-extensions = {'Cortex.h', 'Cortex.cpp', 'Cortex.cuh'}
+extensions = {'Cortex.h', 'Cortex.cpp', 'Cortex.cuh', 'Neuron.h', 'Neuron.cu', 'Neuron.h'}
 
 # Output file
 output_file = "EliotDump.txt"
